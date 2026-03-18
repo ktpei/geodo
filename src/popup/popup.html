@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Geodo</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <div class="header">
+      <h1>Geodo</h1>
+      <label class="toggle">
+        <input type="checkbox" id="enabled-toggle" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="stats">
+      <div class="stat-total">
+        <span class="stat-number" id="total-count">0</span>
+        <span class="stat-label">knowledge entries</span>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-item">
+          <span class="stat-count" id="count-communication">0</span>
+          <span class="stat-name">communication</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-count" id="count-research">0</span>
+          <span class="stat-name">research</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-count" id="count-workflow">0</span>
+          <span class="stat-name">workflow</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-count" id="count-domain">0</span>
+          <span class="stat-name">domain</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-count" id="count-search">0</span>
+          <span class="stat-name">search</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="config">
+      <label class="config-label">LLM API Key</label>
+      <input type="password" id="api-key-input" placeholder="sk-...">
+      <div class="provider-row">
+        <select id="provider-select">
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+        </select>
+        <button id="save-btn">Save</button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="popup.ts"></script>
+</body>
+</html>
