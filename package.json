@@ -1,0 +1,23 @@
+{
+  "name": "geodo",
+  "version": "1.0.0",
+  "description": "Chrome extension that captures structured browser knowledge for Geodo AI's digital twin",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.4.0",
+    "@types/chrome": "^0.1.38",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^3.8.1",
+    "idb": "^8.0.3",
+    "uuid": "^13.0.0"
+  }
+}
