@@ -17,43 +17,18 @@
     </div>
 
     <div class="stats">
-      <div class="stat-total">
-        <span class="stat-number" id="total-count">0</span>
-        <span class="stat-label">knowledge entries</span>
-      </div>
-      <div class="stat-grid">
-        <div class="stat-item">
-          <span class="stat-count" id="count-communication">0</span>
-          <span class="stat-name">communication</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-count" id="count-research">0</span>
-          <span class="stat-name">research</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-count" id="count-workflow">0</span>
-          <span class="stat-name">workflow</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-count" id="count-domain">0</span>
-          <span class="stat-name">domain</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-count" id="count-search">0</span>
-          <span class="stat-name">search</span>
-        </div>
-      </div>
+      <span class="stat-number" id="event-count">0</span>
+      <span class="stat-label">events captured</span>
     </div>
 
     <div class="config">
-      <label class="config-label">LLM API Key</label>
-      <input type="password" id="api-key-input" placeholder="sk-...">
-      <div class="provider-row">
-        <select id="provider-select">
-          <option value="openai">OpenAI</option>
-          <option value="anthropic">Anthropic</option>
-        </select>
+      <label class="config-label">Backend URL</label>
+      <input type="text" id="api-url-input" placeholder="http://localhost:3000">
+      <label class="config-label" style="margin-top:8px">API Key</label>
+      <input type="password" id="api-key-input" placeholder="geodo_dev_2026">
+      <div class="button-row">
         <button id="save-btn">Save</button>
+        <button id="open-insights">Insights</button>
       </div>
     </div>
   </div>

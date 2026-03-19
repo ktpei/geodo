@@ -1,22 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "Geodo Knowledge Capture",
-  "description": "Captures structured browser knowledge to feed Geodo AI's digital twin",
-  "version": "0.1.0",
+  "name": "Geodo",
+  "description": "Captures LinkedIn prospecting behavior to build your AI digital twin",
+  "version": "0.2.0",
   "permissions": [
     "tabs",
     "storage",
-    "scripting",
-    "activeTab",
-    "offscreen",
     "alarms"
   ],
   "host_permissions": [
-    "https://www.linkedin.com/*",
-    "https://mail.google.com/*",
-    "https://www.google.com/*",
-    "https://www.youtube.com/*",
-    "https://*/*"
+    "https://www.linkedin.com/*"
   ],
   "background": {
     "service_worker": "src/background/service-worker.ts",
@@ -24,43 +17,18 @@
   },
   "action": {
     "default_popup": "src/popup/popup.html",
-    "default_title": "Geodo Knowledge Capture"
-  },
-  "externally_connectable": {
-    "ids": ["*"],
-    "matches": ["https://*.geodo.ai/*"]
+    "default_title": "Geodo"
   },
   "content_scripts": [
     {
-      "matches": ["https://www.linkedin.com/*"],
-      "js": ["src/content/linkedin.ts"],
+      "matches": ["https://www.linkedin.com/sales/*"],
+      "js": ["src/content/linkedin-sales-nav.ts"],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://mail.google.com/*"],
-      "js": ["src/content/gmail.ts"],
+      "matches": ["https://www.linkedin.com/in/*"],
+      "js": ["src/content/linkedin-profile.ts"],
       "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://www.google.com/search*"],
-      "js": ["src/content/google-search.ts"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://www.youtube.com/*"],
-      "js": ["src/content/youtube.ts"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://*/*"],
-      "js": ["src/content/generic.ts"],
-      "run_at": "document_idle",
-      "exclude_matches": [
-        "https://www.linkedin.com/*",
-        "https://mail.google.com/*",
-        "https://www.google.com/search*",
-        "https://www.youtube.com/*"
-      ]
     }
   ]
 }

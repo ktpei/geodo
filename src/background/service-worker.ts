@@ -1,221 +1,114 @@
 import { v4 as uuidv4 } from 'uuid';
-import {
-  addKnowledgeEntry,
-  addSession,
-  updateSession,
-  getSession,
-  addToQueue,
-  getQueueItems,
-  removeFromQueue,
-  getConfig,
-  setConfig,
-  countEntries,
-  countEntriesByCategory,
-  pruneOldSessions,
-  updateEntryEmbedding,
-} from '@/db';
-import { searchByEmbedding, composeEmbeddingText } from '@/db/vector-search';
-import type {
-  KnowledgeEntry,
-  ExtractedContent,
-  MessageType,
-  AppConfig,
-} from '@/types';
+import { addEvent, getAllEvents, countEvents, getConfig, setConfig } from '@/db';
+import type { GeodoEvent, MessageType } from '@/types';
+
+const USER_ID = 'dev_user';
+const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 // ── Session Management ──
 
-let currentSessionId: string | null = null;
+let lastActivityTime = Date.now();
 
-async function startSession(): Promise<string> {
-  const id = uuidv4();
-  currentSessionId = id;
-  await addSession({
-    id,
-    start: new Date().toISOString(),
-  });
-  return id;
+async function getOrCreateSessionId(): Promise<string> {
+  const stored = await chrome.storage.session.get('session_id');
+  if (stored.session_id) {
+    return stored.session_id as string;
+  }
+  return createNewSession();
 }
 
-async function endSession(): Promise<void> {
-  if (!currentSessionId) return;
-  const session = await getSession(currentSessionId);
-  if (session) {
-    const end = new Date().toISOString();
-    const duration_ms = new Date(end).getTime() - new Date(session.start).getTime();
-    await updateSession({ ...session, end, duration_ms });
-  }
-  currentSessionId = null;
-}
+async function createNewSession(): Promise<string> {
+  const sessionId = uuidv4();
+  await chrome.storage.session.set({ session_id: sessionId });
 
-async function ensureSession(): Promise<string> {
-  if (!currentSessionId) {
-    return startSession();
-  }
-  return currentSessionId;
-}
-
-// ── Content Processing ──
-
-async function processExtractedContent(payload: ExtractedContent): Promise<void> {
-  console.log(`[Geodo] Processing extracted content:`, payload.category, payload.source.platform, payload.source.url);
-  const config = await getConfig();
-  if (!config.enabled) {
-    console.log('[Geodo] Extension disabled, skipping');
-    return;
-  }
-
-  const sessionId = await ensureSession();
-
-  const entry: KnowledgeEntry = {
-    id: uuidv4(),
-    category: payload.category,
-    source: payload.source,
+  const event: GeodoEvent = {
+    event_id: uuidv4(),
+    event_name: 'session_start',
+    session_id: sessionId,
+    user_id: USER_ID,
     timestamp: new Date().toISOString(),
-    content: payload.content,
-    context: {
-      session_id: sessionId,
-      time_spent_ms: payload.time_spent_ms,
+    page_context: { url: '', platform: 'linkedin_sales_nav', page_type: 'lead_search' },
+    payload: { platform: 'linkedin_sales_nav' },
+  };
+  await addEvent(event);
+  console.log('[Geodo] Session started:', sessionId);
+  return sessionId;
+}
+
+async function endCurrentSession(): Promise<void> {
+  const stored = await chrome.storage.session.get('session_id');
+  const sessionId = stored.session_id as string | undefined;
+  if (!sessionId) return;
+
+  const allEvents = await getAllEvents();
+  const sessionEvents = allEvents.filter((e) => e.session_id === sessionId);
+
+  const event: GeodoEvent = {
+    event_id: uuidv4(),
+    event_name: 'session_end',
+    session_id: sessionId,
+    user_id: USER_ID,
+    timestamp: new Date().toISOString(),
+    page_context: { url: '', platform: 'linkedin_sales_nav', page_type: 'lead_search' },
+    payload: {
+      duration_ms: INACTIVITY_TIMEOUT_MS,
+      event_count: sessionEvents.length,
     },
   };
-
-  await addKnowledgeEntry(entry);
-  console.log(`[Geodo] Stored knowledge entry: ${entry.id} (${entry.category})`);
-
-  // Request embedding generation from offscreen document
-  requestEmbedding(entry);
-}
-
-async function requestEmbedding(entry: KnowledgeEntry): Promise<void> {
-  const text = composeEmbeddingText(entry);
-  try {
-    await ensureOffscreenDocument();
-    const response = await chrome.runtime.sendMessage({
-      type: 'GENERATE_EMBEDDING',
-      target: 'offscreen',
-      payload: { id: entry.id, text },
-    });
-    if (response?.embedding) {
-      await updateEntryEmbedding(entry.id, response.embedding);
-    }
-  } catch {
-    // Offscreen document may not be ready yet — embedding will be retried
-  }
-}
-
-// ── Offscreen Document Management ──
-
-let offscreenCreating: Promise<void> | null = null;
-
-async function ensureOffscreenDocument(): Promise<void> {
-  const existingContexts = await chrome.runtime.getContexts({
-    contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
-  });
-
-  if (existingContexts.length > 0) return;
-
-  if (offscreenCreating) {
-    await offscreenCreating;
-    return;
-  }
-
-  offscreenCreating = chrome.offscreen.createDocument({
-    url: 'src/offscreen/offscreen.html',
-    reasons: [chrome.offscreen.Reason.WORKERS],
-    justification: 'Run ONNX embedding model and LLM API calls',
-  });
-
-  await offscreenCreating;
-  offscreenCreating = null;
-}
-
-// ── LLM Queue Processing ──
-
-async function processExtractionQueue(): Promise<void> {
-  const config = await getConfig();
-  if (!config.llm_api_key) return;
-
-  const items = await getQueueItems(5);
-  if (items.length === 0) return;
-
-  await ensureOffscreenDocument();
-
-  for (const item of items) {
-    try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'LLM_EXTRACT',
-        target: 'offscreen',
-        payload: {
-          url: item.url,
-          title: item.title,
-          raw_text: item.raw_text,
-          api_key: config.llm_api_key,
-          provider: config.llm_provider ?? 'openai',
-        },
-      });
-
-      if (response?.entry) {
-        const entry: KnowledgeEntry = {
-          ...response.entry,
-          id: uuidv4(),
-          timestamp: item.timestamp,
-          context: {
-            session_id: item.session_id,
-          },
-        };
-        await addKnowledgeEntry(entry);
-        requestEmbedding(entry);
-      }
-
-      await removeFromQueue(item.id);
-    } catch {
-      // Will retry on next alarm cycle
-    }
-  }
+  await addEvent(event);
+  await chrome.storage.session.remove('session_id');
+  console.log('[Geodo] Session ended (inactivity):', sessionId);
 }
 
 // ── Message Handler ──
 
-chrome.runtime.onMessage.addListener((message: MessageType & { target?: string }, _sender, sendResponse) => {
-  // Ignore messages targeted at offscreen document
-  if ('target' in message && message.target === 'offscreen') return false;
+chrome.runtime.onMessage.addListener((message: MessageType, _sender, sendResponse) => {
+  lastActivityTime = Date.now();
 
-  handleMessage(message).then(sendResponse);
-  return true; // Keep channel open for async response
+  // GEODO_EVENT is fire-and-forget: respond immediately so the channel doesn't
+  // stay open while the service worker does async IndexedDB work. This eliminates
+  // the "message channel closed before response" errors in content scripts.
+  if (message.type === 'GEODO_EVENT') {
+    sendResponse({ success: true });
+    const config = getConfig();
+    config.then((cfg) => {
+      if (cfg.enabled) addEvent(message.event).catch(console.error);
+    });
+    return false;
+  }
+
+  handleMessage(message).then(sendResponse).catch((err) => {
+    console.error('[Geodo] Message handler error:', err);
+    sendResponse({ error: String(err) });
+  });
+  return true;
 });
 
 async function handleMessage(message: MessageType): Promise<unknown> {
-  switch (message.type) {
-    case 'CONTENT_EXTRACTED':
-      await processExtractedContent(message.payload);
-      return { success: true };
+  const config = await getConfig();
 
-    case 'QUEUE_FOR_LLM': {
-      const sessionId = await ensureSession();
-      await addToQueue({
-        id: uuidv4(),
-        url: message.payload.url,
-        title: message.payload.title,
-        raw_text: message.payload.raw_text,
-        timestamp: new Date().toISOString(),
-        session_id: sessionId,
-      });
+  switch (message.type) {
+    case 'GEODO_EVENT': {
+      if (!config.enabled) return { success: false, reason: 'disabled' };
+      await addEvent(message.event);
+      console.log(`[Geodo] Stored event: ${message.event.event_name} (${message.event.event_id})`);
       return { success: true };
     }
 
-    case 'QUERY_KNOWLEDGE': {
-      const { query, category, limit } = message.payload;
-      // Generate embedding for the query
-      await ensureOffscreenDocument();
-      const embResponse = await chrome.runtime.sendMessage({
-        type: 'GENERATE_EMBEDDING',
-        target: 'offscreen',
-        payload: { id: 'query', text: query },
-      });
-      if (!embResponse?.embedding) {
-        return { results: [], error: 'Embedding generation failed' };
-      }
-      const results = await searchByEmbedding(embResponse.embedding, { limit, category });
-      return { results };
+    case 'GET_SESSION_ID': {
+      if (!config.enabled) return { session_id: null };
+      const sessionId = await getOrCreateSessionId();
+      return { session_id: sessionId };
+    }
+
+    case 'GET_EVENTS': {
+      const events = await getAllEvents();
+      return { events };
+    }
+
+    case 'GET_EVENT_COUNT': {
+      const count = await countEvents();
+      return { count };
     }
 
     case 'GET_CONFIG':
@@ -225,50 +118,68 @@ async function handleMessage(message: MessageType): Promise<unknown> {
       await setConfig(message.payload);
       return { success: true };
 
-    case 'GET_STATS': {
-      const total = await countEntries();
-      const byCategory = await countEntriesByCategory();
-      return { total, byCategory };
-    }
-
     default:
       return { error: 'Unknown message type' };
   }
 }
 
-// ── External Message Handler (other extensions / geodo.ai) ──
+// ── Event Flush to Backend ──
 
-chrome.runtime.onMessageExternal.addListener((message, _sender, sendResponse) => {
-  // Only handle QUERY_KNOWLEDGE from external sources
-  if (message.type === 'QUERY_KNOWLEDGE') {
-    handleMessage(message).then(sendResponse);
-    return true;
+async function flushEventsToBackend(): Promise<void> {
+  const config = await getConfig();
+  if (!config.api_url || !config.api_key) return;
+
+  const events = await getAllEvents();
+  if (events.length === 0) return;
+
+  const batch = {
+    batch_id: uuidv4(),
+    sent_at: new Date().toISOString(),
+    event_count: events.length,
+    events,
+  };
+
+  try {
+    const res = await fetch(`${config.api_url}/api/events`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.api_key}`,
+      },
+      body: JSON.stringify(batch),
+    });
+    if (res.ok) {
+      const data = await res.json() as { received: number };
+      console.log(`[Geodo] Flushed ${data.received} events to backend`);
+    }
+  } catch {
+    // Network unavailable — will retry on next alarm
   }
-  sendResponse({ error: 'Only QUERY_KNOWLEDGE is supported externally' });
-  return false;
-});
+}
 
 // ── Alarms ──
 
-chrome.alarms.create('process-queue', { periodInMinutes: 1 });
-chrome.alarms.create('session-maintenance', { periodInMinutes: 5 });
+chrome.alarms.create('session-check', { periodInMinutes: 5 });
+chrome.alarms.create('flush-events', { periodInMinutes: 1 });
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === 'process-queue') {
-    await processExtractionQueue();
-  } else if (alarm.name === 'session-maintenance') {
-    await pruneOldSessions(30);
+  if (alarm.name === 'session-check') {
+    if (Date.now() - lastActivityTime > INACTIVITY_TIMEOUT_MS) {
+      await endCurrentSession();
+    }
+  } else if (alarm.name === 'flush-events') {
+    await flushEventsToBackend();
   }
 });
 
 // ── Lifecycle ──
 
 chrome.runtime.onStartup.addListener(() => {
-  startSession();
+  console.log('[Geodo] Extension started');
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  startSession();
+  console.log('[Geodo] Extension installed/updated');
 });
 
-console.log('Geodo Knowledge Capture service worker loaded');
+console.log('[Geodo] Service worker loaded');
